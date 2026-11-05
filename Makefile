@@ -1,0 +1,46 @@
+.PHONY: help env setup up down ps logs ingest bronze test lint format reset clean
+
+help:            ## Show available commands
+	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
+
+env:             ## Create .env from the example if missing
+	@test -f .env || cp .env.example .env
+
+setup: env       ## Create local virtual env with dev tools
+	python3.12 -m venv .venv
+	.venv/bin/pip install -r requirements-dev.txt
+	.venv/bin/pre-commit install
+
+up: env          ## Build and start Airflow, Postgres and object storage
+	docker compose up -d --build
+
+down:            ## Stop all services (data is kept)
+	docker compose down
+
+ps:              ## Show running services
+	docker compose ps
+
+logs:            ## Follow Airflow logs
+	docker compose logs -f airflow
+
+ingest:          ## Run the SEC bronze ingestion now
+	docker compose exec airflow airflow dags trigger sec_bronze_ingestion
+
+bronze:          ## List the latest snapshots that landed in bronze
+	docker compose exec airflow python -m src.inspect_lake bronze/sec/
+
+test:            ## Run unit tests
+	.venv/bin/pytest -v
+
+lint:            ## Check code style
+	.venv/bin/ruff check . && .venv/bin/ruff format --check .
+
+format:          ## Auto-format code
+	.venv/bin/ruff format . && .venv/bin/ruff check --fix .
+
+reset:           ## Stop everything AND delete all data volumes
+	docker compose down -v
+
+clean:           ## Remove caches
+	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+	rm -rf .pytest_cache .ruff_cache

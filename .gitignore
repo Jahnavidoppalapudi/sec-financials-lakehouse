@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets
+.env
+
+# Data (never commit datasets)
+data/
+*.parquet
+*.csv
+!tests/fixtures/*.csv
+
+# Tool output
+logs/
+dbt/target/
+dbt/dbt_packages/
+spark-warehouse/
+metastore_db/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
