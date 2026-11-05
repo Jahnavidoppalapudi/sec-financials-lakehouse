@@ -1,0 +1,68 @@
+# Lightweight stack sized for an 8 GB laptop:
+# one Airflow container (standalone mode) + Postgres + SeaweedFS (S3-compatible storage).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  objectstore:
+    # S3-compatible object storage. See docs/adr/001-object-storage.md
+    image: chrislusf/seaweedfs:latest
+    command: server -s3 -dir=/data -master.volumeSizeLimitMB=1024
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-admin}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-change-me-locally}
+    ports:
+      - "8333:8333"   # S3 API
+      - "8888:8888"   # file browser
+    volumes:
+      - objectstore-data:/data
+    restart: unless-stopped
+
+  airflow:
+    build: .
+    command: standalone
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD:-airflow}@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
+      AIRFLOW__CORE__PARALLELISM: "4"
+      # Local development only: no login screen. Never use this on a shared server.
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
+      PYTHONPATH: /opt/airflow
+      S3_ENDPOINT_URL: http://objectstore:8333
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-admin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-change-me-locally}
+      LAKE_BUCKET: lakehouse
+      SEC_USER_AGENT: ${SEC_USER_AGENT:?Set SEC_USER_AGENT in .env}
+      WATCHLIST_PATH: /opt/airflow/config/watchlist.txt
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./config:/opt/airflow/config:ro
+      - airflow-logs:/opt/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      objectstore:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  objectstore-data:
+  airflow-logs:
