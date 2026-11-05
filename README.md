@@ -96,3 +96,33 @@ make reset   # stop and delete all data
 
 U.S. Securities and Exchange Commission, EDGAR APIs (public domain). Used in line with the
 SEC's fair access policy: identified User-Agent and a request rate well under 10/second.
+
+
+## Problems I Hit
+
+### 1. The storage image disappeared
+- **What happened:** The first `make up` failed before anything started. Docker could not pull
+  the MinIO image and returned `401 UNAUTHORIZED` from quay.io.
+- **Cause:** MinIO archived its open-source project, and the image I had pinned is no longer
+  publicly available. A dependency I relied on disappeared overnight.
+- **Fix:** I replaced MinIO with SeaweedFS, an actively maintained open-source server with an
+  S3-compatible API. Only `docker-compose.yml` and the `.env` settings changed.
+- **Lesson:** No pipeline code changed, because everything talks to storage through the standard
+  S3 API and reads the endpoint from configuration. In production I would mirror critical images
+  into a private registry (for example Amazon ECR) so an upstream change can't break deployments.
+  Details in [ADR-001](docs/adr/001-object-storage.md).
+
+### 2. ExxonMobil's history went missing
+- **What happened:** After the first run, one snapshot was 14 KB compressed while every other
+  company was 180–510 KB. The run summary showed XOM with 105 reported concepts, compared with
+  477–936 for the other 19 companies.
+- **Cause:** In 2026 ExxonMobil created a new holding company (ExxonMobil Holdings Corp) as part
+  of moving its legal home to Texas. The new entity got a new SEC ID (CIK 0002115436), and the SEC
+  ticker map now points XOM to it. Decades of history remain under the old CIK (0000034088).
+- **Impact:** Nothing failed, which is what makes it dangerous. Multi-year trends, growth rates and
+  peer comparisons for XOM would have been built on a few months of data, and any backtest would
+  have silently dropped years of history.
+- **Fix:** An entity lineage file that links successor and predecessor CIKs, so the pipeline fetches
+  both and stitches them into one continuous history. Plus a data quality check that flags any
+  company whose history is far shorter than its peers, so the next reorganization is caught
+  automatically instead of silently.
