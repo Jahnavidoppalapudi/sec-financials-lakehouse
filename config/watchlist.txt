@@ -1,0 +1,22 @@
+# Companies to track: one ticker per line. Lines starting with # are ignored.
+# A mix of sectors so the model handles different reporting styles.
+AAPL
+MSFT
+NVDA
+AMZN
+GOOGL
+META
+JPM
+BAC
+GS
+JNJ
+PFE
+UNH
+XOM
+CVX
+WMT
+COST
+KO
+PG
+BA
+CAT
