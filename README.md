@@ -6,7 +6,7 @@
 > **what was known when**. Companies restate earlier numbers; this pipeline keeps every
 > version so analysts and backtests never accidentally use information from the future.
 
-**Status:** 🚧 Bronze layer complete. Silver (normalized facts) and gold (bitemporal model) in progress.
+**Status:** 🚧 Bronze and silver complete. Gold (bitemporal model) in progress.
 
 ## The Problem
 
@@ -22,8 +22,10 @@ silently uses the corrected number it could not have known. This project tracks 
 ```
 SEC EDGAR APIs ──▶ Airflow (daily) ──▶ S3-compatible object storage
                                         ├── bronze/  immutable JSON snapshots      ✅
-                                        ├── silver/  one row per reported fact    (next)
+                                        ├── silver/  one row per reported fact    ✅
                                         └── gold/    bitemporal financial model   (next)
+
+bronze run finishes ──(Airflow asset)──▶ silver build ──▶ quality gate
 ```
 
 ## Bronze Layer: How It Works
@@ -44,11 +46,35 @@ DAG `sec_bronze_ingestion`, daily:
 - **Fail loudly:** unknown tickers, wrong company returned, or empty data stop the run with a clear message.
 - **Testable:** logic lives in `src/` with no Airflow imports; unit tests use an in-memory S3 fake.
 
+## Silver Layer: How It Works
+
+DAG `sec_silver_facts` runs automatically whenever bronze updates (Airflow asset scheduling):
+
+1. Reads the company registry written by bronze (which CIKs belong to which company).
+2. Flattens each company's nested JSON into one row per reported fact: concept, unit, period,
+   value, and the filing it came from (accession number, form, filed date).
+3. Writes one Parquet file per CIK, named after the bronze snapshot it came from. Unchanged
+   companies are skipped; changed ones are rebuilt and the old file removed.
+4. Runs a company-level **quality gate** and writes a report to `silver/sec/_quality/`.
+
+**Design choices**
+
+- **Restatements are kept, not overwritten:** the same period reported in two filings gives two
+  rows, each tied to its filing. Gold decides "what was known when."
+- **Exact money:** values are `decimal(38, 6)`, never floating point.
+- **Corporate actions:** [entity lineage](config/entity_lineage.csv) links a company's old and new
+  legal entities (CIKs) so history stays continuous. Every row carries `company_key` and `source_cik`.
+- **Quality gate:** flags any company with far fewer reported concepts than its peers or less than
+  five years of history, the signature of a silent entity change. The run fails with a message
+  pointing to the lineage file.
+
 ## Key Design Decisions
 
 - [ADR-001](docs/adr/001-object-storage.md): S3-compatible storage; switched from MinIO to SeaweedFS when MinIO's images became unavailable
 - [ADR-002](docs/adr/002-airflow-standalone.md): single-container Airflow to fit an 8 GB laptop
 - [ADR-003](docs/adr/003-immutable-bronze-snapshots.md): immutable, content-addressed bronze snapshots
+- [ADR-004](docs/adr/004-entity-lineage.md): entity lineage for companies that change legal entity
+- [ADR-005](docs/adr/005-silver-format.md): silver as typed Parquet with exact decimals, and why not Spark yet
 
 ## How to Run
 
@@ -60,8 +86,10 @@ cd sec-financials-lakehouse
 make env          # creates .env; set SEC_USER_AGENT to your name and email
 make setup        # local dev tools
 make up           # start Airflow, Postgres, object storage
-make ingest       # run the SEC ingestion now
+make ingest       # run the SEC ingestion now; silver follows automatically
 make bronze       # list landed snapshots
+make facts        # row counts and history per company in silver
+make quality      # latest data quality report
 ```
 
 - Airflow UI: http://localhost:8080
@@ -76,9 +104,9 @@ make reset   # stop and delete all data
 ## Project Structure
 
 ```
-├── config/      # watchlist of companies
+├── config/      # watchlist and entity lineage
 ├── dags/        # Airflow DAGs (orchestration only)
-├── src/         # ingestion logic, orchestrator-independent
+├── src/         # ingestion, silver and quality logic, orchestrator-independent
 ├── tests/       # unit tests with in-memory S3
 ├── docs/adr/    # architecture decision records
 ├── Dockerfile
@@ -96,7 +124,6 @@ make reset   # stop and delete all data
 
 U.S. Securities and Exchange Commission, EDGAR APIs (public domain). Used in line with the
 SEC's fair access policy: identified User-Agent and a request rate well under 10/second.
-
 
 ## Problems I Hit
 
@@ -125,4 +152,4 @@ SEC's fair access policy: identified User-Agent and a request rate well under 10
 - **Fix:** An entity lineage file that links successor and predecessor CIKs, so the pipeline fetches
   both and stitches them into one continuous history. Plus a data quality check that flags any
   company whose history is far shorter than its peers, so the next reorganization is caught
-  automatically instead of silently.
+  automatically instead of silently. Implemented in [ADR-004](docs/adr/004-entity-lineage.md).

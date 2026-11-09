@@ -1,4 +1,4 @@
-.PHONY: help env setup up down ps logs ingest bronze test lint format reset clean
+.PHONY: help env setup up down ps logs ingest bronze silver facts quality test lint format reset clean
 
 help:            ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -23,11 +23,20 @@ ps:              ## Show running services
 logs:            ## Follow Airflow logs
 	docker compose logs -f airflow
 
-ingest:          ## Run the SEC bronze ingestion now
+ingest:          ## Run SEC ingestion now (silver follows automatically)
 	docker compose exec airflow airflow dags trigger sec_bronze_ingestion
 
 bronze:          ## List the latest snapshots that landed in bronze
 	docker compose exec airflow python -m src.inspect_lake bronze/sec/
+
+silver:          ## Rebuild silver now (it also runs automatically after ingest)
+	docker compose exec airflow airflow dags trigger sec_silver_facts
+
+facts:           ## Summarize the silver facts table per company
+	docker compose exec airflow python -m src.inspect_silver
+
+quality:         ## Show the latest data quality report
+	docker compose exec airflow python -m src.inspect_lake silver/sec/_quality/
 
 test:            ## Run unit tests
 	.venv/bin/pytest -v
