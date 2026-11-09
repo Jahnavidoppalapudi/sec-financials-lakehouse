@@ -1,0 +1,7 @@
+sec_financials:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('GOLD_DUCKDB_PATH', 'target/gold.duckdb') }}"
+      threads: 2

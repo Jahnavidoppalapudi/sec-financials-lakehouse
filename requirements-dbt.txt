@@ -1,0 +1,5 @@
+# dbt runs in its own virtual environment (see Dockerfile) so its
+# dependencies can never conflict with Airflow's.
+dbt-core==1.11.16
+dbt-duckdb==1.11.1
+duckdb==1.5.6

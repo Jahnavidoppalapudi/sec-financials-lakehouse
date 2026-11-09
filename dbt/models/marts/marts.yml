@@ -1,0 +1,38 @@
+version: 2
+
+models:
+  - name: fct_metric_versions
+    description: >
+      Bitemporal history of standard financial metrics. Each row is one version of a
+      reported number, valid for its period, and known from `known_from` until `known_to`.
+    columns:
+      - name: version_key
+        tests: [unique, not_null]
+      - name: company_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_company')
+                field: company_key
+      - name: metric
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+      - name: known_from
+        description: "Filing date of the report that first stated this value."
+        tests: [not_null]
+      - name: known_to
+        description: "Filing date of the next different value; null while current."
+
+  - name: fct_metrics_latest
+    description: "Current value of every metric (one row per company, metric and period)."
+
+  - name: rpt_restatements
+    description: "Numbers that changed after first being reported, with the size of the change."
+
+  - name: dim_company
+    description: "Companies and every legal entity (CIK) that reported for them."
+    columns:
+      - name: company_key
+        tests: [unique, not_null]

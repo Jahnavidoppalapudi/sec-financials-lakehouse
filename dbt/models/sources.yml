@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: silver
+    description: "Silver facts written by the sec_silver_facts DAG (one Parquet file per CIK)."
+    tables:
+      - name: facts
+        description: "One row per reported fact per filing. Restated values appear as separate rows."
+        config:
+          external_location: "read_parquet('{{ env_var('SILVER_DIR', '../.silver_cache') }}/**/*.parquet', union_by_name = true)"

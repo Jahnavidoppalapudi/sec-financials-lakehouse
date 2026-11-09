@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: stg_sec__facts
+    description: "Silver facts from 10-K and 10-Q filings, with period type and length."
+    columns:
+      - name: company_key
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+      - name: filed_date
+        tests: [not_null]
+      - name: period_length
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["instant", "quarter", "annual", "other"]

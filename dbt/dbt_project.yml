@@ -1,0 +1,25 @@
+name: sec_financials
+version: "1.0.0"
+config-version: 2
+profile: sec_financials
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+
+models:
+  sec_financials:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table
+
+seeds:
+  sec_financials:
+    concept_map:
+      +column_types:
+        priority: integer
