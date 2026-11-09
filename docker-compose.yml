@@ -47,7 +47,7 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-change-me-locally}
       LAKE_BUCKET: lakehouse
       SEC_USER_AGENT: ${SEC_USER_AGENT:?Set SEC_USER_AGENT in .env}
-      WATCHLIST_PATH: /opt/airflow/config/watchlist.txt
+      CONFIG_DIR: /opt/airflow/config
     ports:
       - "8080:8080"
     volumes:

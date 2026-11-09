@@ -9,6 +9,7 @@ No Airflow imports here: the logic is unit-testable and orchestrator-independent
 
 from __future__ import annotations
 
+import csv
 import gzip
 import hashlib
 import json
@@ -60,6 +61,53 @@ def resolve_ciks(ticker_map: dict, tickers: list[str]) -> list[dict]:
         {"ticker": t, "cik": pad_cik(by_ticker[t]["cik_str"]), "name": by_ticker[t]["title"]}
         for t in tickers
     ]
+
+
+def read_lineage(path: str | Path) -> list[dict]:
+    """Successor -> predecessor CIK links for companies that changed legal entity."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    rows = []
+    with path.open(newline="") as f:
+        for row in csv.DictReader(f):
+            rows.append(
+                {
+                    "ticker": row["ticker"].strip().upper(),
+                    "predecessor_cik": pad_cik(row["predecessor_cik"]),
+                    "successor_cik": pad_cik(row["successor_cik"]),
+                }
+            )
+    return rows
+
+
+def add_predecessors(companies: list[dict], lineage: list[dict]) -> list[dict]:
+    """Tag every company with a stable `company_key` and add predecessor CIKs to fetch.
+
+    The SEC ticker map only knows a ticker's *current* legal entity. When a company
+    reorganizes, its history stays under the old CIK, so we fetch both and later
+    stitch them together under one company_key (the ticker).
+    """
+    result = [{**c, "company_key": c["ticker"], "role": "current"} for c in companies]
+    for link in lineage:
+        current = next((c for c in result if c["ticker"] == link["ticker"]), None)
+        if current is None:
+            continue  # not on the watchlist
+        if current["cik"] != link["successor_cik"]:
+            raise ValueError(
+                f"Lineage for {link['ticker']} expects current CIK {link['successor_cik']}, "
+                f"but the SEC ticker map says {current['cik']}. Review config/entity_lineage.csv."
+            )
+        result.append(
+            {
+                "ticker": link["ticker"],
+                "cik": link["predecessor_cik"],
+                "name": f"{current['name']} (predecessor entity)",
+                "company_key": link["ticker"],
+                "role": "predecessor",
+            }
+        )
+    return result
 
 
 def validate_company_facts(payload: dict, expected_cik: str) -> int:

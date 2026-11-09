@@ -1,7 +1,7 @@
 """Daily SEC EDGAR ingestion into the bronze layer.
 
 1. Snapshot the SEC ticker -> CIK map
-2. Resolve the watchlist to CIKs
+2. Resolve the watchlist to CIKs, adding predecessor CIKs from config/entity_lineage.csv
 3. Fetch company facts for each company in parallel (dynamic task mapping),
    writing a new immutable snapshot only when the data changed
 4. Validate the run and write a run summary
@@ -14,10 +14,16 @@ import os
 import time
 from datetime import UTC, datetime
 
-from airflow.sdk import dag, task
+from airflow.sdk import Asset, dag, task
 
 BUCKET = os.environ.get("LAKE_BUCKET", "lakehouse")
-WATCHLIST = os.environ.get("WATCHLIST_PATH", "/opt/airflow/config/watchlist.txt")
+CONFIG_DIR = os.environ.get("CONFIG_DIR", "/opt/airflow/config")
+WATCHLIST = os.path.join(CONFIG_DIR, "watchlist.txt")
+LINEAGE = os.path.join(CONFIG_DIR, "entity_lineage.csv")
+COMPANY_REGISTRY_KEY = "bronze/sec/_reference/companies.json"
+
+# Downstream DAGs (silver) are scheduled on this asset: they run when bronze updates
+BRONZE_COMPANYFACTS = Asset("s3://lakehouse/bronze/sec/companyfacts")
 
 
 def _s3():
@@ -59,12 +65,31 @@ def sec_bronze_ingestion():
 
     @task
     def snapshot_ticker_map() -> list[dict]:
-        from src.edgar import TICKER_MAP_URL, fetch, read_watchlist, resolve_ciks, store_snapshot
+        from src.edgar import (
+            TICKER_MAP_URL,
+            add_predecessors,
+            fetch,
+            read_lineage,
+            read_watchlist,
+            resolve_ciks,
+            store_snapshot,
+        )
 
         raw = fetch(_session(), TICKER_MAP_URL)
-        store_snapshot(_s3(), BUCKET, "company_tickers", "all", raw, TICKER_MAP_URL)
-        companies = resolve_ciks(json.loads(raw), read_watchlist(WATCHLIST))
-        print(f"Resolved {len(companies)} companies from the watchlist")
+        s3 = _s3()
+        store_snapshot(s3, BUCKET, "company_tickers", "all", raw, TICKER_MAP_URL)
+        companies = add_predecessors(
+            resolve_ciks(json.loads(raw), read_watchlist(WATCHLIST)), read_lineage(LINEAGE)
+        )
+        # Registry of which CIKs belong to which company, used by the silver layer
+        s3.put_object(
+            Bucket=BUCKET,
+            Key=COMPANY_REGISTRY_KEY,
+            Body=json.dumps(companies, indent=2).encode(),
+            ContentType="application/json",
+        )
+        predecessors = [c for c in companies if c["role"] == "predecessor"]
+        print(f"Resolved {len(companies)} CIKs ({len(predecessors)} predecessor entities)")
         return companies
 
     # Max 4 companies at once keeps us well under the SEC limit of 10 requests/second
@@ -78,14 +103,19 @@ def sec_bronze_ingestion():
         concepts = validate_company_facts(json.loads(raw), company["cik"])
         result = store_snapshot(_s3(), BUCKET, "companyfacts", company["cik"], raw, url)
         print(f"{company['ticker']}: {result.status}, {concepts} concepts, {result.bytes:,} bytes")
-        return {**result.as_dict(), "ticker": company["ticker"], "concepts": concepts}
+        return {
+            **result.as_dict(),
+            "ticker": company["ticker"],
+            "role": company["role"],
+            "concepts": concepts,
+        }
 
-    @task
+    @task(outlets=[BRONZE_COMPANYFACTS])
     def write_run_summary(results: list[dict]) -> None:
         results = [results[i] for i in range(len(results))]  # avoids reading past the end
         summary = {
             "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "companies": len(results),
+            "ciks": len(results),
             "new_snapshots": sum(r["status"] == "new" for r in results),
             "unchanged": sum(r["status"] == "unchanged" for r in results),
             "results": results,
@@ -94,7 +124,7 @@ def sec_bronze_ingestion():
         _s3().put_object(Bucket=BUCKET, Key=key, Body=json.dumps(summary, indent=2).encode())
         print(
             f"{summary['new_snapshots']} new, {summary['unchanged']} unchanged "
-            f"of {summary['companies']} companies"
+            f"of {summary['ciks']} CIKs"
         )
 
     companies = snapshot_ticker_map()
