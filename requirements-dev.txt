@@ -1,4 +1,5 @@
 -r requirements.txt
+-r requirements-dbt.txt
 pytest
 ruff
 pre-commit

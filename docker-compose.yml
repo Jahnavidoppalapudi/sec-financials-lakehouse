@@ -48,12 +48,19 @@ services:
       LAKE_BUCKET: lakehouse
       SEC_USER_AGENT: ${SEC_USER_AGENT:?Set SEC_USER_AGENT in .env}
       CONFIG_DIR: /opt/airflow/config
+      DBT_BIN: /opt/dbt-venv/bin/dbt
+      DBT_PROJECT_DIR: /opt/airflow/dbt
+      WAREHOUSE_DIR: /opt/airflow/warehouse
+      GOLD_DUCKDB_PATH: /opt/airflow/warehouse/gold.duckdb
+      DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
     ports:
       - "8080:8080"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
       - ./config:/opt/airflow/config:ro
+      - ./dbt:/opt/airflow/dbt
+      - warehouse:/opt/airflow/warehouse
       - airflow-logs:/opt/airflow/logs
     depends_on:
       postgres:
@@ -66,3 +73,4 @@ volumes:
   postgres-data:
   objectstore-data:
   airflow-logs:
+  warehouse:

@@ -1,3 +1,5 @@
 boto3
 requests
 pyarrow
+# Same version as requirements-dbt.txt so both can open the gold database file
+duckdb==1.5.6

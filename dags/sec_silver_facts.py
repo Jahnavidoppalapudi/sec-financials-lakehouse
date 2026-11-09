@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from airflow.sdk import Asset, dag, task
 
@@ -42,7 +42,11 @@ def _s3():
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
-    default_args={"retries": 1},
+    default_args={
+        "retries": 1,
+        # Fail fast instead of hanging (e.g. when the laptop sleeps mid-run)
+        "execution_timeout": timedelta(minutes=20),
+    },
     tags=["silver", "sec"],
 )
 def sec_silver_facts():

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from airflow.sdk import Asset, dag, task
 
@@ -53,7 +53,11 @@ def _session():
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
-    default_args={"retries": 2},
+    default_args={
+        "retries": 2,
+        # Fail fast instead of hanging (e.g. when the laptop sleeps mid-run)
+        "execution_timeout": timedelta(minutes=15),
+    },
     tags=["bronze", "sec", "ingestion"],
 )
 def sec_bronze_ingestion():
