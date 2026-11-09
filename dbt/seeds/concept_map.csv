@@ -1,0 +1,16 @@
+metric,taxonomy,concept,unit,period_type,priority,description
+revenue,us-gaap,Revenues,USD,duration,1,Total revenues
+revenue,us-gaap,RevenueFromContractWithCustomerExcludingAssessedTax,USD,duration,2,Revenue from contracts with customers (ASC 606)
+revenue,us-gaap,RevenuesNetOfInterestExpense,USD,duration,3,Bank revenue net of interest expense
+revenue,us-gaap,SalesRevenueNet,USD,duration,4,Net sales (pre-2018 tag)
+net_income,us-gaap,NetIncomeLoss,USD,duration,1,Net income attributable to the parent
+net_income,us-gaap,ProfitLoss,USD,duration,2,Net income including noncontrolling interests
+operating_income,us-gaap,OperatingIncomeLoss,USD,duration,1,Operating income
+operating_cash_flow,us-gaap,NetCashProvidedByUsedInOperatingActivities,USD,duration,1,Cash from operations
+eps_diluted,us-gaap,EarningsPerShareDiluted,USD/shares,duration,1,Diluted earnings per share
+total_assets,us-gaap,Assets,USD,instant,1,Total assets
+total_liabilities,us-gaap,Liabilities,USD,instant,1,Total liabilities
+stockholders_equity,us-gaap,StockholdersEquity,USD,instant,1,Equity attributable to the parent
+stockholders_equity,us-gaap,StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest,USD,instant,2,Equity including noncontrolling interests
+liabilities_and_equity,us-gaap,LiabilitiesAndStockholdersEquity,USD,instant,1,Total liabilities and equity
+shares_outstanding,dei,EntityCommonStockSharesOutstanding,shares,instant,1,Shares outstanding on the cover page

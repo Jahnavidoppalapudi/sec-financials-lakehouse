@@ -35,3 +35,7 @@ metastore_db/
 .DS_Store
 .vscode/
 .idea/
+
+# ...except small config and reference files the project needs
+!config/*.csv
+!dbt/seeds/*.csv
