@@ -1,3 +1,3 @@
-# Installed into the Airflow image and in CI
 boto3
 requests
+pyarrow
