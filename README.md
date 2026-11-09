@@ -6,7 +6,7 @@
 > **what was known when**. Companies restate earlier numbers; this pipeline keeps every
 > version so analysts and backtests never accidentally use information from the future.
 
-**Status:** 🚧 Bronze and silver complete. Gold (bitemporal model) in progress.
+**Status:** ✅ Bronze, silver and gold complete: about 630,000 reported facts for 20 companies, modelled point-in-time.
 
 ## The Problem
 
@@ -23,10 +23,22 @@ silently uses the corrected number it could not have known. This project tracks 
 SEC EDGAR APIs ──▶ Airflow (daily) ──▶ S3-compatible object storage
                                         ├── bronze/  immutable JSON snapshots      ✅
                                         ├── silver/  one row per reported fact    ✅
-                                        └── gold/    bitemporal financial model   (next)
+                                        └── gold/    bitemporal financial model   ✅
 
-bronze run finishes ──(Airflow asset)──▶ silver build ──▶ quality gate
+bronze (daily) ──asset──▶ silver + quality gate ──asset──▶ gold: dbt build + data tests ──▶ Parquet export
 ```
+
+## Tech Stack
+
+| Layer | Tool |
+|---|---|
+| Orchestration | Apache Airflow 3 (daily schedule, asset-triggered downstream DAGs, dynamic task mapping) |
+| Storage | S3-compatible object storage (SeaweedFS locally), Parquet |
+| Ingestion | Python, requests with retry/backoff, boto3 |
+| Silver | PyArrow with an explicit schema and exact decimals |
+| Gold | dbt + DuckDB: bitemporal model, 16 data tests |
+| Quality | Company-level quality gate (Python), dbt tests, CI on a synthetic fixture |
+| CI | GitHub Actions: ruff, pytest, dbt build |
 
 ## Bronze Layer: How It Works
 
@@ -68,6 +80,41 @@ DAG `sec_silver_facts` runs automatically whenever bronze updates (Airflow asset
   five years of history, the signature of a silent entity change. The run fails with a message
   pointing to the lineage file.
 
+## Gold Layer: How It Works
+
+DAG `sec_gold_model` runs automatically after silver. It mirrors silver to local disk, runs
+`dbt build` (models and data tests together) on DuckDB, and exports the results to the lake.
+
+| Model | What it answers |
+|---|---|
+| `fct_metric_versions` | Every version of 10 standard metrics (revenue, net income, assets…), with `known_from` / `known_to` |
+| `fct_metrics_latest` | The current value of every metric |
+| `rpt_restatements` | Which numbers changed after first being reported, and by how much |
+| `dim_company` | Each company and every legal entity (CIK) that reported for it |
+
+**Asking "what did we know on a date?"**
+
+```bash
+make asof TICKER=AAPL DATE=2024-03-01
+```
+
+```
+metric                 period end    known then reported     known today       change
+revenue                2023-12-31        $1,000 2024-02-15          $960      -4.000%
+```
+*(Output shown from the synthetic test fixture.)*
+
+**Design choices**
+
+- **Versions only on change:** a number repeated as a comparative in later reports stays one
+  version, so storage grows only with real restatements.
+- **Comparable versions:** companies tag the same metric differently and switch tags over time.
+  A reviewed [concept map](dbt/seeds/concept_map.csv) picks one tag per company, metric and period.
+- **Tested timeline:** a dbt test guarantees every fact's versions form a contiguous timeline
+  with exactly one current version. Warn-level tests check that balance sheets balance.
+- **Tested in CI:** a synthetic fixture with a restatement, a tag switch, an 8-K row and a
+  company reorganization runs through the real dbt project on every push.
+
 ## Key Design Decisions
 
 - [ADR-001](docs/adr/001-object-storage.md): S3-compatible storage; switched from MinIO to SeaweedFS when MinIO's images became unavailable
@@ -75,6 +122,7 @@ DAG `sec_silver_facts` runs automatically whenever bronze updates (Airflow asset
 - [ADR-003](docs/adr/003-immutable-bronze-snapshots.md): immutable, content-addressed bronze snapshots
 - [ADR-004](docs/adr/004-entity-lineage.md): entity lineage for companies that change legal entity
 - [ADR-005](docs/adr/005-silver-format.md): silver as typed Parquet with exact decimals, and why not Spark yet
+- [ADR-006](docs/adr/006-bitemporal-gold-model.md): bitemporal gold model with dbt and DuckDB
 
 ## How to Run
 
@@ -90,6 +138,8 @@ make ingest       # run the SEC ingestion now; silver follows automatically
 make bronze       # list landed snapshots
 make facts        # row counts and history per company in silver
 make quality      # latest data quality report
+make summary      # gold: companies, fact counts, largest restatements
+make asof TICKER=AAPL DATE=2024-03-01   # what was known on that date
 ```
 
 - Airflow UI: http://localhost:8080
@@ -106,6 +156,7 @@ make reset   # stop and delete all data
 ```
 ├── config/      # watchlist and entity lineage
 ├── dags/        # Airflow DAGs (orchestration only)
+├── dbt/         # gold model: staging, metric mapping, bitemporal marts, data tests
 ├── src/         # ingestion, silver and quality logic, orchestrator-independent
 ├── tests/       # unit tests with in-memory S3
 ├── docs/adr/    # architecture decision records
@@ -153,3 +204,13 @@ SEC's fair access policy: identified User-Agent and a request rate well under 10
   both and stitches them into one continuous history. Plus a data quality check that flags any
   company whose history is far shorter than its peers, so the next reorganization is caught
   automatically instead of silently. Implemented in [ADR-004](docs/adr/004-entity-lineage.md).
+
+### 3. Nightly runs failed, manual runs worked
+- **What happened:** Every scheduled run at 00:30 failed, each after running 2+ hours, while
+  manual runs during the day finished in about a minute.
+- **Cause:** The laptop was asleep overnight, which froze Docker mid-run. When it woke, Airflow
+  saw tasks that had stopped reporting and marked them failed.
+- **Fix:** Every task now has an execution timeout (15–20 minutes), so a stuck task fails fast
+  and retries instead of hanging for hours.
+- **Lesson:** "Works when I watch it" is not "works on schedule." In production the scheduler
+  runs on always-on infrastructure, with timeouts and alerts so a stuck run pages someone.
